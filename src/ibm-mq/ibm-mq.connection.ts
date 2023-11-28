@@ -18,7 +18,7 @@ import {
   MQQueueManager,
   MQSD,
   OpenPromise,
-  PutPromise,
+  Put1Promise,
   setTuningParameters,
   SubPromise,
 } from 'ibmmq';
@@ -26,6 +26,7 @@ import { StringDecoder } from 'string_decoder';
 import { v4 as generateUUID } from 'uuid';
 import { isNotEmpty } from 'class-validator';
 import { IMQChannel, IMQCredentials, IMQDecoratorOptions, IMQOptions, MQObjectType } from '../interfaces/mq.interfaces';
+import { awaitCatcher } from 'await-catcher';
 
 const decoder = new StringDecoder('utf8');
 
@@ -215,7 +216,7 @@ export class IbmMqConnection {
       connectionOptions.SecurityParms = securityParams;
     }
 
-    connectionOptions.Options = MQC.MQCNO_CLIENT_BINDING;
+    connectionOptions.Options = [MQC.MQCNO_CLIENT_BINDING, MQC.MQCNO_RECONNECT];
     connectionOptions.ClientConn = connectionDescriptor;
 
     this._managedConnection = await ConnxPromise(queueManager.name, connectionOptions);
@@ -346,9 +347,6 @@ export class IbmMqConnection {
       openDescriptor.ObjectName = objectName;
       openDescriptor.ObjectType = MQC.MQOT_Q;
     }
-    const openOptions = MQC.MQOO_OUTPUT;
-
-    const objectOpened = await OpenPromise(this.managedConnection, openDescriptor, openOptions);
 
     const messageDescriptor = new MQMD();
     if (isNotEmpty(msgOptions.replyToQueue)) messageDescriptor.ReplyToQ = msgOptions.replyToQueue;
@@ -362,8 +360,10 @@ export class IbmMqConnection {
       putMessageOptions.Options |= MQC.MQPMO_WARN_IF_NO_SUBS_MATCHED;
     }
 
-    await PutPromise(objectOpened, messageDescriptor, putMessageOptions, message);
-    await ClosePromise(objectOpened, 0);
+    this.logger.debug(`PUT QUEUE ${objectName}: PUBLICANDO MENSAJE`);
+    await Put1Promise(this.managedConnection, openDescriptor, messageDescriptor, putMessageOptions, message);
+    this.logger.debug(`PUT QUEUE ${objectName}: MENSAJE PUBLICADO`);
+    this.logger.debug(`PUT QUEUE ${objectName}: SE HA CERRADO LA COLA CORRECTAMENTE`);
     return { msgId: messageDescriptor.MsgId };
   }
 
@@ -393,20 +393,33 @@ export class IbmMqConnection {
     } else {
       gmo.MatchOptions = MQC.MQMO_NONE;
     }
-    return new Promise((resolve, reject) => {
-      Get(queueOpened, mqmd, gmo, (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
-        if (err) {
-          if (err.mqrc == MQC.MQRC_NO_MSG_AVAILABLE) {
-            console.log('No more messages available.');
+    this.logger.debug(`GET QUEUE ${queue}: OBTENIENDO MENSAJES`);
+    const [response, error] = await awaitCatcher(
+      new Promise<string>((resolve, reject) => {
+        Get(queueOpened, mqmd, gmo, async (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
+          if (err) {
+            if (err.mqrc == MQC.MQRC_NO_MSG_AVAILABLE) {
+              console.log('No more messages available.');
+            }
+            GetDone(hObj);
+            return reject(err);
           }
+          const message: string = md.Format == 'MQSTR' ? decoder.write(buf) : buf.toString();
           GetDone(hObj);
-          return reject(err);
-        }
-        const message: string = md.Format == 'MQSTR' ? decoder.write(buf) : buf.toString();
-        GetDone(hObj);
-        return resolve(message);
-      });
-    });
+          return resolve(message);
+        });
+      }),
+    );
+    if (error) {
+      await awaitCatcher(ClosePromise(queueOpened, 0));
+      this.logger.debug(`GET QUEUE ${queue} ERROR: LA COLA SE HA CERRADO CORRECTAMENTE`);
+      throw error;
+    }
+    this.logger.debug(`GET QUEUE ${queue}: MENSAJES OBTENIDOS`);
+
+    await awaitCatcher(ClosePromise(queueOpened, 0));
+    this.logger.debug(`GET QUEUE ${queue}: LA COLA SE HA CERRADO CORRECTAMENTE`);
+    return response;
   }
 
   private handleError(handler: SubscriberHandler, error: MQError) {
@@ -453,6 +466,22 @@ export class IbmMqConnection {
 
   public closeConnection() {
     return ClosePromise(this.managedConnection, 0);
+  }
+
+  public async reconnect() {
+    let maxAttempts = 3;
+    while (maxAttempts !== 0) {
+      this.logger.log('ATTEMPTING TO RECONNECT TO IBM QUEUE MANAGER');
+      const [, connectionError] = await awaitCatcher(this.initCore());
+      if (connectionError) {
+        maxAttempts--;
+        continue;
+      }
+      this.logger.log('RECONNECTED TO IBM QUEUE MANAGER');
+
+      return true;
+    }
+    return false;
   }
 
   private toHexString(byteArray: Buffer) {
