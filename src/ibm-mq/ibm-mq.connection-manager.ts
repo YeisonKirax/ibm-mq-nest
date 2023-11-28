@@ -1,4 +1,4 @@
-import {IbmMqConnection} from './ibm-mq.connection';
+import { IbmMqConnection } from './ibm-mq.connection';
 
 export class IbmMqConnectionManager {
   private mqConnections: IbmMqConnection[] = [];
@@ -8,9 +8,7 @@ export class IbmMqConnectionManager {
   }
 
   getConnection(name: string) {
-    return this.mqConnections.find(
-      (connection) => connection.getMqChannel.queueManager.name === name,
-    );
+    return this.mqConnections.find((connection) => connection.getMqChannel.queueManager.name === name);
   }
 
   getConnections() {

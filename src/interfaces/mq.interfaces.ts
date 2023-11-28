@@ -1,4 +1,4 @@
-import {LoggerService} from '@nestjs/common';
+import { LoggerService } from '@nestjs/common';
 
 export enum MQObjectType {
   TOPIC = 'TOPIC',
@@ -18,9 +18,7 @@ export declare type MQHandlerType = MQObjectType.TOPIC | MQObjectType.QUEUE;
 /**
  * represents the ways to get messages from a queue or topic
  * */
-export declare type MQMatchMessageMode =
-  | MatchMessageMode.MSG_ID
-  | MatchMessageMode.NONE;
+export declare type MQMatchMessageMode = MatchMessageMode.MSG_ID | MatchMessageMode.NONE;
 
 export declare type MQHandlers = Record<string, any>;
 

@@ -62,7 +62,7 @@ export class IbmMqNestModule
     super();
   }
 
-  async onApplicationShutdown(signal?: string) {
+  async onApplicationShutdown() {
     this.logger.verbose('Closing IBM MQ Connections');
     const connections = this.connectionManager.getConnections();
     const closeQueuesOpenedPromises: Promise<void>[] = [];
