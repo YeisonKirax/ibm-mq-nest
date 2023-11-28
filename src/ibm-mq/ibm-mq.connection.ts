@@ -1,5 +1,5 @@
-import {Logger, LoggerService} from '@nestjs/common';
-import {catchError, lastValueFrom, Subject, take, throwError, timeout,} from 'rxjs';
+import { Logger, LoggerService } from '@nestjs/common';
+import { catchError, lastValueFrom, Subject, take, throwError, timeout } from 'rxjs';
 import {
   ClosePromise,
   ConnxPromise,
@@ -21,11 +21,11 @@ import {
   PutPromise,
   setTuningParameters,
   SubPromise,
-} from '@yeisonkirax/ibm-mq';
-import {StringDecoder} from 'string_decoder';
-import {v4 as generateUUID} from 'uuid';
-import {isNotEmpty} from 'class-validator';
-import {IMQChannel, IMQCredentials, IMQDecoratorOptions, IMQOptions, MQObjectType,} from '../interfaces/mq.interfaces';
+} from 'ibmmq';
+import { StringDecoder } from 'string_decoder';
+import { v4 as generateUUID } from 'uuid';
+import { isNotEmpty } from 'class-validator';
+import { IMQChannel, IMQCredentials, IMQDecoratorOptions, IMQOptions, MQObjectType } from '../interfaces/mq.interfaces';
 
 const decoder = new StringDecoder('utf8');
 
@@ -49,10 +49,7 @@ export type AdditionalInfo = {
   rawMessage: Buffer;
   messageDescriptor: MQMD;
 };
-export type SubscriberHandler = (
-  msg: any,
-  additionalInfo?: Partial<AdditionalInfo>,
-) => Promise<void>;
+export type SubscriberHandler = (msg: any, additionalInfo?: Partial<AdditionalInfo>) => Promise<void>;
 
 export type BaseConsumerHandler = {
   consumerTag: string;
@@ -71,7 +68,7 @@ export declare type QueueOptions = {
 /**
  * `PublishMessageOptions` is an object with a `target` property that is either
  * a
- * `TopicOptions` or a `QueueOptions` object, and an optional `replyToQueue`
+ * `TopicOptions`, or a `QueueOptions` object, and an optional `replyToQueue`
  * property.
  * @property {TopicOptions | QueueOptions} target - The target topic or queue
  *   to publish the message to.
@@ -127,8 +124,7 @@ export declare type GetMessagesConfig = {
   waitInterval: number;
 };
 
-export type ConsumerHandler<T, U> =
-  | BaseConsumerHandler & {
+export type ConsumerHandler<T, U> = BaseConsumerHandler & {
   type: MQObjectType;
   targetName: string;
   handler: (msg: T | string, additionalInfo: AdditionalInfo) => Promise<U>;
@@ -142,8 +138,7 @@ export class IbmMqConnection {
   private initialized$ = new Subject<void>();
   private _managedConnection: MQQueueManager;
   private _mqObjectsOpenedToGetMessages: Record<string, MQObject> = {};
-  private _consumers: Record<ConsumerTag, ConsumerHandler<unknown, unknown>> =
-    {};
+  private _consumers: Record<ConsumerTag, ConsumerHandler<unknown, unknown>> = {};
 
   constructor(
     private readonly channel: IMQChannel,
@@ -153,7 +148,7 @@ export class IbmMqConnection {
     this.mqChannel = {
       ...this.channel,
     };
-    this.mqOptions = {...this.options};
+    this.mqOptions = { ...this.options };
     this.logger = new Logger(IbmMqConnection.name);
   }
 
@@ -193,13 +188,7 @@ export class IbmMqConnection {
         take(1),
         timeout({
           each: 10 * 1000,
-          with: () =>
-            throwError(
-              () =>
-                new Error(
-                  `Failed to connect to a IBM MQ broker within a timeout of ${10}s`,
-                ),
-            ),
+          with: () => throwError(() => new Error(`Failed to connect to a IBM MQ broker within a timeout of ${10}s`)),
         }),
         catchError((err) => throwError(() => err)),
       ),
@@ -212,9 +201,7 @@ export class IbmMqConnection {
    */
   private async initCore() {
     const queueManager = this.getMqChannel.queueManager;
-    this.logger.log(
-      `Trying to connect to IBM MQ Broker ${queueManager.name}-${this.getMqChannel.name}`,
-    );
+    this.logger.log(`Trying to connect to IBM MQ Broker ${queueManager.name}-${this.getMqChannel.name}`);
     const connectionDescriptor = new MQCD();
     connectionDescriptor.ConnectionName = `${queueManager.host}(${queueManager.port})`;
     connectionDescriptor.ChannelName = this.mqChannel.name;
@@ -231,12 +218,8 @@ export class IbmMqConnection {
     connectionOptions.Options = MQC.MQCNO_CLIENT_BINDING;
     connectionOptions.ClientConn = connectionDescriptor;
 
-    this._managedConnection = await ConnxPromise(
-      queueManager.name,
-      connectionOptions,
-    );
-    const {getLoopPollTimeMs, getLoopDelayTimeMs, maxConsecutiveGets, debug} =
-      this.mqOptions;
+    this._managedConnection = await ConnxPromise(queueManager.name, connectionOptions);
+    const { getLoopPollTimeMs, getLoopDelayTimeMs, maxConsecutiveGets, debug } = this.mqOptions;
 
     setTuningParameters({
       getLoopPollTimeMs: getLoopPollTimeMs ?? 1000 * 10,
@@ -245,9 +228,7 @@ export class IbmMqConnection {
       debugLog: debug || false,
     });
 
-    this.logger.log(
-      `Successfully connected to MQ broker (${queueManager.name}-${this.getMqChannel.name})`,
-    );
+    this.logger.log(`Successfully connected to MQ broker (${queueManager.name}-${this.getMqChannel.name})`);
   }
 
   /**
@@ -255,9 +236,7 @@ export class IbmMqConnection {
    * @param consumer - ConsumerHandler<T, U>
    */
   private registerConsumerForQueue<T, U>(consumer: ConsumerHandler<T, U>) {
-    (this._consumers as Record<ConsumerTag, ConsumerHandler<T, U>>)[
-      consumer.consumerTag
-      ] = consumer;
+    (this._consumers as Record<ConsumerTag, ConsumerHandler<T, U>>)[consumer.consumerTag] = consumer;
   }
 
   /**
@@ -273,32 +252,19 @@ export class IbmMqConnection {
     topicOptions: IMQDecoratorOptions,
     originalHandlerName: string,
   ): Promise<void> {
-    this.logger.log(
-      `Creating Subscription to topic ${topicOptions.targetName}`,
-    );
+    this.logger.log(`Creating Subscription to topic ${topicOptions.targetName}`);
     const topic = topicOptions.targetName;
     const mqSubscriptorDescriptor = new MQSD();
     mqSubscriptorDescriptor.ObjectString = topic;
     mqSubscriptorDescriptor.SubName = `MS-${generateUUID()}`;
     mqSubscriptorDescriptor.Options =
-      MQC.MQSO_CREATE |
-      MQC.MQSO_NON_DURABLE |
-      MQC.MQSO_FAIL_IF_QUIESCING |
-      MQC.MQSO_MANAGED;
+      MQC.MQSO_CREATE | MQC.MQSO_NON_DURABLE | MQC.MQSO_FAIL_IF_QUIESCING | MQC.MQSO_MANAGED;
 
-    const topicSubscribed = await SubPromise(
-      this.managedConnection,
-      null,
-      mqSubscriptorDescriptor,
-    );
+    const topicSubscribed = await SubPromise(this.managedConnection, null, mqSubscriptorDescriptor);
     const mqmd = new MQMD();
     const gmo = new MQGMO();
     //gmo.WaitInterval = 3 * 1000; // 3 seconds
-    gmo.Options =
-      MQC.MQGMO_NO_SYNCPOINT |
-      MQC.MQGMO_CONVERT |
-      MQC.MQGMO_FAIL_IF_QUIESCING |
-      MQC.MQGMO_NO_WAIT;
+    gmo.Options = MQC.MQGMO_NO_SYNCPOINT | MQC.MQGMO_CONVERT | MQC.MQGMO_FAIL_IF_QUIESCING | MQC.MQGMO_NO_WAIT;
 
     gmo.MatchOptions = MQC.MQMO_NONE;
 
@@ -310,18 +276,13 @@ export class IbmMqConnection {
     });
     this.logger.log(`Subscribed to topic ${topicOptions.targetName}`);
 
-    Get(
-      topicSubscribed.hObj,
-      mqmd,
-      gmo,
-      (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
-        if (err) {
-          this.handleError(handler, err);
-        }
+    Get(topicSubscribed.hObj, mqmd, gmo, (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
+      if (err) {
+        this.handleError(handler, err);
+      }
 
-        this.handleMessage(handler, buf, md);
-      },
-    );
+      this.handleMessage(handler, buf, md);
+    });
   }
 
   /**
@@ -337,42 +298,26 @@ export class IbmMqConnection {
     queueOptions: IMQDecoratorOptions,
     originalHandlerName: string,
   ): Promise<void> {
-    this.logger.log(
-      `Creating Subscription to queue ${queueOptions.targetName}`,
-    );
+    this.logger.log(`Creating Subscription to queue ${queueOptions.targetName}`);
     const queue = queueOptions.targetName;
     const queueDescriptor = new MQOD();
     queueDescriptor.ObjectName = queue;
     queueDescriptor.ObjectType = MQC.MQOT_Q;
     const openQueueOptions = [MQC.MQOO_INPUT_AS_Q_DEF];
-    const queueOpened = await OpenPromise(
-      this.managedConnection,
-      queueDescriptor,
-      openQueueOptions,
-    );
+    const queueOpened = await OpenPromise(this.managedConnection, queueDescriptor, openQueueOptions);
     this.objectsOpenedToGetMessages[queue] = queueOpened;
     const mqmd = new MQMD();
     const gmo = new MQGMO();
-    gmo.Options = [
-      MQC.MQGMO_NO_WAIT,
-      MQC.MQGMO_NO_SYNCPOINT,
-      MQC.MQGMO_CONVERT,
-      MQC.MQGMO_FAIL_IF_QUIESCING,
-    ];
+    gmo.Options = [MQC.MQGMO_NO_WAIT, MQC.MQGMO_NO_SYNCPOINT, MQC.MQGMO_CONVERT, MQC.MQGMO_FAIL_IF_QUIESCING];
 
     gmo.MatchOptions = MQC.MQMO_NONE;
 
-    Get(
-      queueOpened,
-      mqmd,
-      gmo,
-      (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
-        if (err) {
-          this.handleError(handler, err);
-        }
-        this.handleMessage(handler, buf, md);
-      },
-    );
+    Get(queueOpened, mqmd, gmo, (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
+      if (err) {
+        this.handleError(handler, err);
+      }
+      this.handleMessage(handler, buf, md);
+    });
 
     this.registerConsumerForQueue({
       type: MQObjectType.QUEUE,
@@ -390,10 +335,7 @@ export class IbmMqConnection {
    * @param {PublishMessageOptions} msgOptions - PublishMessageOptions
    * @returns The return value is a Promise that resolves with the msg id.
    */
-  public async publish(
-    message: string,
-    msgOptions: PublishMessageOptions,
-  ): Promise<{ msgId: Buffer }> {
+  public async publish(message: string, msgOptions: PublishMessageOptions): Promise<{ msgId: Buffer }> {
     const objectName = msgOptions.target.name;
     const mqObjectType = msgOptions.target.type;
     const openDescriptor = new MQOD();
@@ -406,37 +348,23 @@ export class IbmMqConnection {
     }
     const openOptions = MQC.MQOO_OUTPUT;
 
-    const objectOpened = await OpenPromise(
-      this.managedConnection,
-      openDescriptor,
-      openOptions,
-    );
+    const objectOpened = await OpenPromise(this.managedConnection, openDescriptor, openOptions);
 
     const messageDescriptor = new MQMD();
-    if (isNotEmpty(msgOptions.replyToQueue))
-      messageDescriptor.ReplyToQ = msgOptions.replyToQueue;
-    if (
-      isNotEmpty(msgOptions.messageId) &&
-      isNotEmpty(msgOptions.correlativeId)
-    ) {
+    if (isNotEmpty(msgOptions.replyToQueue)) messageDescriptor.ReplyToQ = msgOptions.replyToQueue;
+    if (isNotEmpty(msgOptions.messageId) && isNotEmpty(msgOptions.correlativeId)) {
       messageDescriptor.MsgId = msgOptions.messageId;
       messageDescriptor.CorrelId = msgOptions.correlativeId;
     }
     const putMessageOptions = new MQPMO();
-    putMessageOptions.Options =
-      MQC.MQPMO_NO_SYNCPOINT | MQC.MQPMO_NEW_MSG_ID | MQC.MQPMO_NEW_CORREL_ID;
+    putMessageOptions.Options = MQC.MQPMO_NO_SYNCPOINT | MQC.MQPMO_NEW_MSG_ID | MQC.MQPMO_NEW_CORREL_ID;
     if (mqObjectType === MQObjectType.TOPIC) {
       putMessageOptions.Options |= MQC.MQPMO_WARN_IF_NO_SUBS_MATCHED;
     }
 
-    await PutPromise(
-      objectOpened,
-      messageDescriptor,
-      putMessageOptions,
-      message,
-    );
+    await PutPromise(objectOpened, messageDescriptor, putMessageOptions, message);
     await ClosePromise(objectOpened, 0);
-    return {msgId: messageDescriptor.MsgId};
+    return { msgId: messageDescriptor.MsgId };
   }
 
   /**
@@ -445,30 +373,19 @@ export class IbmMqConnection {
    * @returns The return a Promise that resolves with the msg as string or
    * an error.
    */
-  public async getMessagesFromQueue(
-    options: GetMessagesConfig,
-  ): Promise<string> {
+  public async getMessagesFromQueue(options: GetMessagesConfig): Promise<string> {
     const queue = options.queue.name;
     const queueDescriptor = new MQOD();
     queueDescriptor.ObjectName = queue;
     queueDescriptor.ObjectType = MQC.MQOT_Q;
     const openQueueOptions = [MQC.MQOO_INPUT_AS_Q_DEF];
-    const queueOpened = await OpenPromise(
-      this.managedConnection,
-      queueDescriptor,
-      openQueueOptions,
-    );
+    const queueOpened = await OpenPromise(this.managedConnection, queueDescriptor, openQueueOptions);
     const mqmd = new MQMD();
     const gmo = new MQGMO();
 
     gmo.WaitInterval = options.waitInterval;
 
-    gmo.Options = [
-      MQC.MQGMO_WAIT,
-      MQC.MQGMO_NO_SYNCPOINT,
-      MQC.MQGMO_CONVERT,
-      MQC.MQGMO_FAIL_IF_QUIESCING,
-    ];
+    gmo.Options = [MQC.MQGMO_WAIT, MQC.MQGMO_NO_SYNCPOINT, MQC.MQGMO_CONVERT, MQC.MQGMO_FAIL_IF_QUIESCING];
 
     if (options.filterMessagesById && isNotEmpty(options.msgId)) {
       gmo.MatchOptions = MQC.MQMO_MATCH_MSG_ID;
@@ -477,24 +394,18 @@ export class IbmMqConnection {
       gmo.MatchOptions = MQC.MQMO_NONE;
     }
     return new Promise((resolve, reject) => {
-      Get(
-        queueOpened,
-        mqmd,
-        gmo,
-        (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
-          if (err) {
-            if (err.mqrc == MQC.MQRC_NO_MSG_AVAILABLE) {
-              console.log('No more messages available.');
-            }
-            GetDone(hObj);
-            return reject(err);
+      Get(queueOpened, mqmd, gmo, (err: MQError, hObj: MQObject, gmo: MQGMO, md: MQMD, buf: Buffer) => {
+        if (err) {
+          if (err.mqrc == MQC.MQRC_NO_MSG_AVAILABLE) {
+            console.log('No more messages available.');
           }
-          const message: string =
-            md.Format == 'MQSTR' ? decoder.write(buf) : buf.toString();
           GetDone(hObj);
-          return resolve(message);
-        },
-      );
+          return reject(err);
+        }
+        const message: string = md.Format == 'MQSTR' ? decoder.write(buf) : buf.toString();
+        GetDone(hObj);
+        return resolve(message);
+      });
     });
   }
 
@@ -506,11 +417,7 @@ export class IbmMqConnection {
   }
 
   private handleMessage(
-    handler: (
-      msg: string | undefined,
-      additionalInfo: AdditionalInfo,
-      error?: MQError,
-    ) => Promise<void>,
+    handler: (msg: string | undefined, additionalInfo: AdditionalInfo, error?: MQError) => Promise<void>,
     rawMsg: Buffer,
     messageDescriptor: MQMD,
     error?: MQError,
@@ -549,16 +456,12 @@ export class IbmMqConnection {
   }
 
   private toHexString(byteArray: Buffer) {
-    return byteArray.reduce(
-      (output, elem) => output + ('0' + elem.toString(16)).slice(-2),
-      '',
-    );
+    return byteArray.reduce((output, elem) => output + ('0' + elem.toString(16)).slice(-2), '');
   }
 
   public hexToBytes(hex: string): number[] {
     const bytes: number[] = [];
-    for (let c = 0; c < hex.length; c += 2)
-      bytes.push(parseInt(hex.substr(c, 2), 16));
+    for (let c = 0; c < hex.length; c += 2) bytes.push(parseInt(hex.substr(c, 2), 16));
     return bytes;
   }
 }
